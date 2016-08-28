@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+    <meta charset="UTF-8">
+    <title></title>
+    <script src="./pixi.js-3.0.8/bin/pixi.js"></script>
+    <script src="./Snap.svg-0.4.1/dist/snap.svg.js"></script>
+    <script src="./lodash.js"></script>
+</head>
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+    }
+    svg {
+
+    }
+</style>
+<body>
+    <svg height="2000px" width="2000px" id="svg">
+    </svg>
+    <canvas id="canvas" style="background-color:#ddd;margin: 0 auto;position: absolute">
+
+    </canvas>
+
+</body>
+<script>
+    //Consts
+    var WIDTH = 260;
+    var HEIGHT = 260;
+
+    //Visual settings
+    var color = 0xFF0000;
+    var jitter = 0;
+    var onlyCorridors = true;
+    var loop = false;
+    var WALL_SIZE = 5;
+
+
+    //for walls
+    var max_width = WIDTH - 2;
+    var max_height = HEIGHT - 2;
+    var OFFSET = 300;
+    var doors = [];
+    var vertical_walls = [];
+    var horizontal_walls = [];
+    var points = [];
+
+    var svgLines = [];
+
+    //Algorithm settings
+    var MAX_CALLS = 120;
+    var MAX_FORKS = 55;
+    var BACK_TRACE_STEPS = 4;
+
+
+
+    //Canvas
+    var canvas = document.getElementById('canvas');
+    var renderer = PIXI.autoDetectRenderer(2000, 2000, {antialias: true, transparent: true});
+    document.body.appendChild(renderer.view);
+    var stage = new PIXI.Container();
+    var graphics = new PIXI.Graphics();
+
+    //SVG
+    var snap = Snap("#svg");
+    //var bigCircle = snap.circle(150, 150, 100);
+
+
+
+    function initPoints() {
+        points = _.range(WIDTH).map(
+                function (x) {
+                    return _.range(HEIGHT).map(
+                            function (y) {
+                                return [x * WALL_SIZE + OFFSET, y * WALL_SIZE + OFFSET];
+                            }
+                    )
+                });
+
+        var point;
+        if (jitter > 0) {
+            for (var x = 0; x < WIDTH; x++) {
+                for (var y = 0; y < HEIGHT; y++) {
+                    if (x != 0 || y != 0) {
+                        if (x == 0) {
+                            points[x][y][0] = points[x][y - 1][0] + WALL_SIZE + _.random(-jitter, jitter);
+                            points[x][y][1] = points[x][y - 1][1] + _.random(-jitter, jitter);
+                        } else if (y == 0) {
+                            points[x][y][0] = points[x-1][y][0] + _.random(-jitter, jitter);
+                            points[x][y][1] = points[x-1][y][1] + WALL_SIZE + _.random(-jitter, jitter);
+                        } else {
+                            points[x][y][0] = (points[x][y - 1][0] + points[x - 1][y][0] + WALL_SIZE ) / 2  + _.random(-jitter, jitter);
+                            points[x][y][1] = (points[x][y - 1][1] + points[x - 1][y][1] + WALL_SIZE ) / 2  + _.random(-jitter, jitter);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    //Init Walls
+    function initWalls() {
+        for (var v_x = 0; v_x < WIDTH; v_x++) {
+            vertical_walls[v_x] = [];
+            for (var v_y = 0; v_y < HEIGHT - 1; v_y++) {
+                vertical_walls[v_x][v_y] = true;
+            }
+        }
+
+        for (var h_y = 0; h_y < HEIGHT; h_y++) {
+            horizontal_walls[h_y] = [];
+            for (var h_x = 0; h_x < WIDTH - 1; h_x++) {
+                horizontal_walls[h_y][h_x] = true;
+            }
+        }
+    }
+
+    function drawWall(x,y,x_,y_){
+        graphics.moveTo(x, y)
+                .lineTo(x_, y_);
+        var line = snap.line(x,y,x_,y_).attr({stroke:"#ff00ff",strokeWidth: 1, strokeLinecap: "round"});
+        svgLines.push(line);
+    }
+
+
+    function drawWalls2(){
+        var x, y, x_, y_,room, walls;
+        graphics.clear();
+        graphics.lineStyle(2, color, 1.0);
+        for (var d_x = 1; d_x < WIDTH-3; d_x++) {
+            for (var d_y = 1; d_y < HEIGHT - 3; d_y++){
+                room = [d_x,d_y];
+                walls = getWalls(room);
+                if(walls.length < 4 || !onlyCorridors){
+                    if(vertical_walls[d_x][d_y]){
+                        x = points[d_x][d_y][0];
+                        y = points[d_x][d_y][1];
+                        x_ = points[d_x][d_y + 1][0];
+                        y_ = points[d_x][d_y + 1][1];
+                        drawWall(x,y,x_,y_)
+
+
+                    }
+
+                    if(vertical_walls[d_x+1][d_y]){
+                        x = points[d_x+1][d_y][0];
+                        y = points[d_x+1][d_y][1];
+                        x_ = points[d_x+1][d_y + 1][0];
+                        y_ = points[d_x+1][d_y + 1][1];
+
+                        drawWall(x,y,x_,y_)
+                    }
+
+                    if(horizontal_walls[d_y][d_x]){
+                        x = points[d_x][d_y][0];
+                        y = points[d_x][d_y][1];
+                        x_ = points[d_x+1][d_y][0];
+                        y_ = points[d_x+1][d_y][1];
+                        drawWall(x,y,x_,y_)
+                    }
+
+                    if(horizontal_walls[d_y+1][d_x]){
+                        x = points[d_x][d_y+1][0];
+                        y = points[d_x][d_y+1][1];
+                        x_ = points[d_x+1][d_y+1][0];
+                        y_ = points[d_x+1][d_y+1][1];
+                        drawWall(x,y,x_,y_)
+                    }
+                }
+            }
+        }
+
+    }
+
+    function drawWalls() {
+        var x, y, x_, y_;
+        graphics.clear();
+        graphics.lineStyle(2, color, 1.0);
+
+        for (var v_x = 0; v_x < WIDTH; v_x++) {
+            for (var v_y = 0; v_y < HEIGHT - 1; v_y++) {
+                if (vertical_walls[v_x][v_y]) {
+                    x = points[v_x][v_y][0];
+                    y = points[v_x][v_y][1];
+                    x_ = points[v_x][v_y + 1][0];
+                    y_ = points[v_x][v_y + 1][1];
+                        drawWall(x,y,x_,y_)
+                }
+            }
+        }
+
+        for (var h_y = 0; h_y < HEIGHT; h_y++) {
+            for (var h_x = 0; h_x < WIDTH - 1; h_x++) {
+                if (horizontal_walls[h_y][h_x]) {
+                    x = points[h_x][h_y][0];
+                    y = points[h_x][h_y][1];
+                    x_ = points[h_x + 1][h_y][0];
+                    y_ = points[h_x + 1][h_y][1];
+                        drawWall(x,y,x_,y_)
+                }
+            }
+        }
+    }
+
+    function getWalls(room) {
+        var walls = [];
+        if (vertical_walls[room[0]][room[1]] && room[0] > 0) {
+            walls.push([-1, 0]);
+        }
+        if (vertical_walls[room[0] + 1][room[1]] && room[0] < max_width - 1) {
+            walls.push([1, 0]);
+        }
+        if (horizontal_walls[room[1]][room[0]] && room[1] > 0) {
+            walls.push([0, -1]);
+        }
+        if (horizontal_walls[room[1] + 1][room[0]] && room[1] < max_height - 1) {
+            walls.push([0, 1]);
+        }
+        return walls;
+    }
+
+    function toDoor(room, wall) {
+        return _.concat(room, wall);
+    }
+
+    function nextRoom(door) {
+        return [door[0] + door[2], door[1] + door[3]];
+    }
+
+    /**
+     * Search wall to a room near by, with no current door.
+     */
+    function getNeighbor(doorStack) {
+        var wall, walls, neighbor;
+        var rooms = _(doorStack
+                .slice(1))
+                .shuffle()
+                .map(function (door) {
+                    return [door[0], door[1]]
+                })
+                .value();
+        for (var room of rooms) {
+            //Search isolated neighbor
+            walls = getWalls(room);
+            for (var i = 0; i < walls.length; i++) {
+                wall = walls[i];
+                neighbor = [room[0] + wall[0], room[1] + wall[1]];
+                if (getWalls(neighbor).length == 4)
+                    return _.concat(room, wall);
+            }
+        }
+        return null;
+    }
+
+
+    function createDoors(start, depth) {
+        var room = start || [0, 30]; //start entry
+
+
+        var doorStack = [];
+
+
+        var walls, wall, fork, door, neighbor;
+        for (var a = 0; a < MAX_FORKS; a++) {
+            for (var b = 0; b < MAX_CALLS; b++) {
+
+
+                walls = getWalls(room);
+                wall = null;
+
+                if (walls.length >= 3) {
+                    wall = _.sample(walls);
+                    door = toDoor(room, wall);
+                    buildDoor(door, true);
+                    doorStack.push(door);
+                    room = nextRoom(door);
+                } else {
+                    //Backtrace
+                    //console.log(JSON.stringify(doorStack));
+                    _.times(BACK_TRACE_STEPS, function () {
+                        if (doorStack.length > 0)
+                            buildDoor(door = doorStack.pop(), false);
+                    });
+                    if (!door) //door can be undefined ??
+                        return;
+                    room = [door[0], door[1]];
+                }
+            }
+
+
+            if (doorStack.length < 2)
+                break;
+            door = getNeighbor(doorStack);
+            if (!door)
+                break;
+            buildDoor(door, true);
+            room = nextRoom(door);
+        }
+    }
+
+    function buildDoor(door, build) {
+        var X = 0, Y = 1, DX = 2, DY = 3;
+        //console.log(door,build);
+
+        if (door[DX] == 1) {
+            vertical_walls[door[X] + 1][door[Y]] = !build;
+        }
+        if (door[DX] == -1) {
+            vertical_walls[door[X]][door[Y]] = !build;
+        }
+        if (door[DY] == 1) {
+            horizontal_walls[door[Y] + 1][door[X]] = !build;
+        }
+        if (door[DY] == -1) {
+            horizontal_walls[door[Y]][door[X]] = !build;
+        }
+    }
+
+    function getRandomInt(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function explodeSVG(){
+        _.forEach(svgLines, function(line){
+            var c = getRandomInt(0,3);
+            switch (c) {
+                case 0:
+                    line.animate({x1:-100,x2:-100},1000);
+                    break;
+                case 1:
+                    line.animate({x1:2200,x2:2200},1000);
+                    break;
+                case 2:
+                    line.animate({y1:-100,y2:-100},1000);
+                    break;
+                case 3:
+                    line.animate({y1:2200,y2:2200},10000);
+                    break;
+                default:
+
+            }
+        });
+    }
+
+
+
+    stage.addChild(graphics);
+
+
+
+    var draw = function(){
+        initWalls();
+        initPoints();
+        createDoors([0, 4], 0);
+        buildDoor([0, 4, -1, 0], true);
+        drawWalls2();
+        renderer.render(stage);
+
+
+        jitter = (jitter + 0.1) % 50
+        if(loop){
+            window.requestAnimationFrame(draw);
+        }
+    };
+
+    window.requestAnimationFrame(draw);
+
+
+
+    /*
+    function animate(){
+        initPoints();
+        drawWalls();
+        renderer.render(stage);
+        requestAnimationFrame(animate);
+    }
+    */
+    //animate()
+
+
+</script>
+
+
+</html>
